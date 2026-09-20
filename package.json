@@ -10,7 +10,7 @@
   "dependencies": {
     "express": "4.17.1",
     "lodash": "4.17.15",
-    "axios": "0.21.1",
+    "axios": "1.7.8",
     "minimist": "1.2.5",
     "node-uuid": "1.4.7",
     "serialize-javascript": "3.0.0",

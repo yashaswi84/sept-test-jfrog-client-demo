@@ -5,19 +5,29 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+env:
+  BUILD_NAME: sept-test-jfrog-client-demo
+  JF_NPM_RESOLVE: sept-test-npm
+  JF_NPM_DEPLOY: sept-test-npm-local
 
 jobs:
-  build:
+  build-publish:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
@@ -27,53 +37,50 @@ jobs:
 
       - name: Configure npm with Artifactory
         run: |
-          jf npmc \
-            --repo-resolve npm-virtual \
-            --repo-deploy npm-local \
-            --server-id-resolve setup-jfrog-cli-server \
-            --server-id-deploy setup-jfrog-cli-server
+          jf npm-config \
+            --repo-resolve="${{ env.JF_NPM_RESOLVE }}" \
+            --repo-deploy="${{ env.JF_NPM_DEPLOY }}"
 
-      - name: Create npm cache folder
-        run: mkdir -p /home/runner/.npm/_cacache
-
-      - name: Clear Artifactory npm-remote cache
+      - name: Bump unique publish version
+        if: github.event_name != 'pull_request'
         run: |
-          jf rt del "npm-remote/lodash/-/" --quiet
-          jf rt del "npm-remote/axios/-/" --quiet
-          jf rt del "npm-remote/minimist/-/" --quiet
-          jf rt del "npm-remote/serialize-javascript/-/" --quiet
-          jf rt del "npm-remote/jsonwebtoken/-/" --quiet
-          jf rt del "npm-remote/node-uuid/-/" --quiet
-          jf rt del "npm-remote/express/-/" --quiet
-          jf rt del "npm-remote/mongoose/-/" --quiet
-          jf rt del "npm-remote/node-fetch/-/" --quiet
-          jf rt del "npm-remote/dotenv/-/" --quiet
+          npm version "1.0.${{ github.run_number }}" --no-git-tag-version
 
-      - name: Install dependencies
-        continue-on-error: true
-        run: jf npm install --build-name="jocelyneh-jfrog/jfrog-client-demo" --build-number=${{ github.run_number }}
+      - name: Install dependencies via Artifactory
+        run: |
+          jf npm install \
+            --build-name="${{ env.BUILD_NAME }}" \
+            --build-number="${{ github.run_number }}"
 
       - name: Run tests
         run: npm test
 
-      - name: Audit dependencies (jf audit)
+      - name: SCA audit
         continue-on-error: true
         run: jf audit --npm --format=table --extended-table
 
-      - name: Scan for secrets and SAST
+      - name: JAS audit (SAST / Secrets / IaC)
         continue-on-error: true
         run: jf audit --npm --secrets --sast --iac --format=table
 
-      - name: Publish to Artifactory
-        if: github.ref == 'refs/heads/main'
-        run: jf npm publish --build-name="jocelyneh-jfrog/jfrog-client-demo" --build-number=${{ github.run_number }}
+      - name: Publish package to Artifactory
+        if: github.event_name != 'pull_request'
+        run: |
+          jf npm publish \
+            --build-name="${{ env.BUILD_NAME }}" \
+            --build-number="${{ github.run_number }}"
 
-      - name: Publish build info
-        if: github.ref == 'refs/heads/main'
-        run: jf rt build-publish "jocelyneh-jfrog/jfrog-client-demo" ${{ github.run_number }}
+      - name: Collect env + git and publish build-info
+        if: github.event_name != 'pull_request'
+        run: |
+          jf rt bce "${{ env.BUILD_NAME }}" "${{ github.run_number }}"
+          jf rt bag "${{ env.BUILD_NAME }}" "${{ github.run_number }}" || true
+          jf rt bp "${{ env.BUILD_NAME }}" "${{ github.run_number }}"
 
-      - name: Build scan (jf build-scan)
-        if: github.ref == 'refs/heads/main'
+      - name: Build scan
+        if: github.event_name != 'pull_request'
         continue-on-error: true
         timeout-minutes: 5
-        run: jf build-scan "jocelyneh-jfrog/jfrog-client-demo" ${{ github.run_number }} --fail --trigger-scan-retries=3
+        run: |
+          jf build-scan "${{ env.BUILD_NAME }}" "${{ github.run_number }}" \
+            --fail=false --trigger-scan-retries=3

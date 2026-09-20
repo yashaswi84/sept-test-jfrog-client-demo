@@ -1,0 +1,16 @@
+- params:
+    git:
+      repoName: sept-test-jfrog-client-demo
+      branches:
+        - main
+      aggregateFixes: true
+    scan:
+      minSeverity: "Medium"
+      fixableOnly: false
+      failOnSecurityIssues: false
+      disableJas: false
+      sastChangedFilesOnly: false
+      projects:
+        - workingDirs:
+            - "."
+          installCommand: "npm install --ignore-scripts"

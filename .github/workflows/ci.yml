@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ secrets.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+
+      - name: Configure npm with Artifactory
+        run: |
+          jf npmc \
+            --repo-resolve npm-virtual \
+            --repo-deploy npm-local \
+            --server-id-resolve setup-jfrog-cli-server \
+            --server-id-deploy setup-jfrog-cli-server
+
+      - name: Create npm cache folder
+        run: mkdir -p /home/runner/.npm/_cacache
+
+      - name: Clear Artifactory npm-remote cache
+        run: |
+          jf rt del "npm-remote/lodash/-/" --quiet
+          jf rt del "npm-remote/axios/-/" --quiet
+          jf rt del "npm-remote/minimist/-/" --quiet
+          jf rt del "npm-remote/serialize-javascript/-/" --quiet
+          jf rt del "npm-remote/jsonwebtoken/-/" --quiet
+          jf rt del "npm-remote/node-uuid/-/" --quiet
+          jf rt del "npm-remote/express/-/" --quiet
+          jf rt del "npm-remote/mongoose/-/" --quiet
+          jf rt del "npm-remote/node-fetch/-/" --quiet
+          jf rt del "npm-remote/dotenv/-/" --quiet
+
+      - name: Install dependencies
+        continue-on-error: true
+        run: jf npm install --build-name="jocelyneh-jfrog/jfrog-client-demo" --build-number=${{ github.run_number }}
+
+      - name: Run tests
+        run: npm test
+
+      - name: Audit dependencies (jf audit)
+        continue-on-error: true
+        run: jf audit --npm --format=table --extended-table
+
+      - name: Scan for secrets and SAST
+        continue-on-error: true
+        run: jf audit --npm --secrets --sast --iac --format=table
+
+      - name: Publish to Artifactory
+        if: github.ref == 'refs/heads/main'
+        run: jf npm publish --build-name="jocelyneh-jfrog/jfrog-client-demo" --build-number=${{ github.run_number }}
+
+      - name: Publish build info
+        if: github.ref == 'refs/heads/main'
+        run: jf rt build-publish "jocelyneh-jfrog/jfrog-client-demo" ${{ github.run_number }}
+
+      - name: Build scan (jf build-scan)
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: jf build-scan "jocelyneh-jfrog/jfrog-client-demo" ${{ github.run_number }} --fail --trigger-scan-retries=3

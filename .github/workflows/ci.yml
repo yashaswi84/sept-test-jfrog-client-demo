@@ -37,10 +37,12 @@ jobs:
 
       - name: Configure npm with Artifactory
         run: |
+          rm -f package-lock.json npm-shrinkwrap.json .npmrc
           jf npm-config \
             --repo-resolve="${{ env.JF_NPM_RESOLVE }}" \
-            --repo-deploy="${{ env.JF_NPM_DEPLOY }}"
-
+            --repo-deploy="${{ env.JF_NPM_DEPLOY }}" \
+            --server-id-resolve=setup-jfrog-cli-server \
+            --server-id-deploy=setup-jfrog-cli-server
       - name: Bump unique publish version
         if: github.event_name != 'pull_request'
         run: |
